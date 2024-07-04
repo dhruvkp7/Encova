@@ -1,0 +1,124 @@
+import requests
+import json
+
+# API endpoint URLs (Ensure these URLs are correct as per API documentation)
+LIST_PENDING_APPROVALS_URL = "https://encova-dev.api.identitynow.com/v3/access-request-approvals/pending"
+EDIT_REQUEST_URL = "https://encova-dev.api.identitynow.com/v3/access-request-approvals/{id}/forward"
+
+# Function to obtain an access token
+def get_access_token(client_id, client_secret, scope):
+    url = "https://encova-dev.api.identitynow.com/oauth/token"
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": scope
+    }
+    
+    response = requests.post(url, headers=headers, data=data)
+    
+    if response.status_code == 200:
+        return response.json().get("access_token")
+    else:
+        raise Exception(f"Error obtaining access token: {response.text}")
+
+# Function to fetch pending request items from the API
+def fetch_pending_requests(headers, filter=None, limit=None, offset=None):
+    params = {}
+    
+    if filter:
+        params["filter"] = filter
+    if limit:
+        params["limit"] = limit
+    if offset:
+        params["offset"] = offset
+    
+    response = requests.get(LIST_PENDING_APPROVALS_URL, headers=headers, params=params)
+    
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Status Code: {response.status_code}")
+        print(f"Response Headers: {response.headers}")
+        print(f"Response Body: {response.text}")
+        raise Exception(f"Error fetching pending requests: {response.text}")
+
+# Function to edit a selected request item
+def edit_request_item(headers, id, owner, comment=None):
+    data = {
+        "newOwnerId": owner
+    }
+    
+    if comment:
+        data["comment"] = comment
+    
+    print("Request body for editing item:")
+    print(json.dumps(data, indent=2))
+    
+    response = requests.post(EDIT_REQUEST_URL.format(id=id), headers=headers, json=data)
+    
+    if response.status_code == 200 or response.status_code == 202:
+        try:
+            return response.json().get("message", "Request accepted for processing")
+        except json.JSONDecodeError:
+            return "Request accepted for processing, but no message returned."
+    else:
+        print(f"Status Code: {response.status_code}")
+        print(f"Response Headers: {response.headers}")
+        print(f"Response Body: {response.text}")
+        if response.text.strip() == "":
+            print("Create body for the API call with something similar to:\n")
+            print(json.dumps(data, indent=2))
+        raise Exception(f"Error editing request item: {response.text}")
+
+def main():
+    client_id = input("Enter the client ID: ")
+    client_secret = input("Enter the client secret: ")
+    scope = "idn:access-request-approvals:manage"
+    
+    access_token = get_access_token(client_id, client_secret, scope)
+    print(f"Access Token: {access_token}")
+    
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        response = fetch_pending_requests(headers, filter="pending", limit=10)
+        
+        print("Pending Request Items:")
+        for item in response:
+            owner_name = item.get('owner', {}).get('name', 'Unknown Owner')
+            print(f"ID: {item['id']}, Name: {item['name']}, Created: {item['created']}")
+            print(f"    Requested Object: {item['requestedObject']['name']}")
+            print(f"    Current Owner: {owner_name}")
+    
+        item_id = input("Enter the ID of the item to edit: ")
+
+        selected_item = next((item for item in response if item['id'] == item_id), None)
+        if selected_item:
+            owner_name = selected_item.get('owner', {}).get('name', 'Unknown Owner')
+            print(f"Selected Item Details: ID: {selected_item['id']}, Name: {selected_item['name']}, Created: {selected_item['created']}")
+            print(f"    Requested Object: {selected_item['requestedObject']['name']}")
+            print(f"    Current Owner: {owner_name}")
+        else:
+            print(f"No item found with ID: {item_id}")
+            return
+
+        owner = input("Enter new owner: ")
+        comment = input("Enter comment (optional): ")
+
+        try:
+            message = edit_request_item(headers, item_id, owner, comment)
+            print(f"Success: {message}")
+        except Exception as e:
+            print(f"Error: {e}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+if __name__ == "__main__":
+    main()
